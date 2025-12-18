@@ -106,7 +106,7 @@ def calculate_pace(game_id):
     except: return None, None, None, 0, 0, 0, ""
 
 # --- MAIN ---
-st.title("🏀 Live NBA Pace Tracker")
+st.title("🏀 The Rich NBA Pace Tracker - Live")
 st.caption(f"Auto-updating every {refresh_rate} seconds.")
 
 season_avg, season_median = get_season_baseline()
@@ -205,3 +205,4 @@ else:
             c5.metric("Implied Eff (Pts/100)", eff_text)
             
             st.divider()
+
