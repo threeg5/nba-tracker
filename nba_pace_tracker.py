@@ -24,6 +24,11 @@ st.sidebar.subheader("Keltner Channels")
 kc_length = st.sidebar.number_input("KC Length", 1, value=5)
 kc_mult = st.sidebar.number_input("KC Multiplier", 0.1, value=2.0)
 
+# DEBUG SECTION
+st.sidebar.divider()
+st.sidebar.subheader("🕵️ Debugging")
+show_debug = st.sidebar.checkbox("Show Raw Odds Data")
+
 # Constants
 HEADERS_CDN = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.nba.com/"}
 HEADERS_STATS = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.nba.com/", "Origin": "https://www.nba.com"}
@@ -65,65 +70,37 @@ def get_live_odds():
     except: return {}
 
 def parse_game_clock(clock_str, period):
-    """
-    Parses 'Q2 8:30' or 'Q4 :29.2' into exact minutes elapsed.
-    Critical fix for the 'Pace 71.4' bug.
-    """
     try:
-        if "Final" in clock_str:
-            return period * 12.0
-        if "Half" in clock_str:
-            return 24.0
-        if "Start" in clock_str or period == 0:
-            return 0.0
-
-        # Regex to find time "10:00" or ":29.2"
-        # Matches "Q1 " then captures the time part
+        if "Final" in clock_str: return period * 12.0
+        if "Half" in clock_str: return 24.0
+        if "Start" in clock_str or period == 0: return 0.0
         match = re.search(r'Q\d\s+(:?\d{0,2}:?\d{2}(\.\d+)?)', clock_str)
-        
-        minutes_remaining = 12.0 # Default if parse fails
-        
+        minutes_remaining = 12.0
         if match:
             time_part = match.group(1)
             if ":" in time_part:
                 parts = time_part.split(":")
-                # Handle ":29.2" case where first part is empty
                 mins = int(parts[0]) if parts[0] else 0
                 secs = float(parts[1])
                 minutes_remaining = mins + (secs / 60.0)
-            else:
-                # Rare case just seconds?
-                minutes_remaining = float(time_part) / 60.0
-        
-        # Calculate Elapsed
-        # (Past Quarters * 12) + (12 - Minutes Left in Current)
+            else: minutes_remaining = float(time_part) / 60.0
         past_quarters = period - 1
         elapsed = (past_quarters * 12.0) + (12.0 - minutes_remaining)
         return elapsed
-
-    except Exception:
-        # Fallback to rough estimate if regex fails
-        return (period * 12.0) - 6.0 
+    except Exception: return (period * 12.0) - 6.0 
 
 def calculate_pace(game_id):
     try:
         data = requests.get(f"https://cdn.nba.com/static/json/liveData/boxscore/boxscore_{game_id}.json", headers=HEADERS_CDN, timeout=5).json()['game']
         home, away, period = data['homeTeam'], data['awayTeam'], data['period']
         clock_text = data.get('gameStatusText', '')
-
         if period == 0: return 0, home['teamTricode'], away['teamTricode'], 0, 0, 0, clock_text
-        
         def get_poss(t): 
             s = t['statistics']
             return s['fieldGoalsAttempted'] + 0.44 * s['freeThrowsAttempted'] - s['reboundsOffensive'] + s['turnovers']
-
         avg_poss = (get_poss(home) + get_poss(away)) / 2
-        
-        # --- NEW PRECISE TIME CALCULATION ---
         minutes_elapsed = parse_game_clock(clock_text, period)
-        
-        if minutes_elapsed <= 0: minutes_elapsed = 1 # Avoid div/0 at start
-        
+        if minutes_elapsed <= 0: minutes_elapsed = 1
         pace = (avg_poss / minutes_elapsed) * 48
         return pace, home['teamTricode'], away['teamTricode'], home['score'], away['score'], period, clock_text
     except: return None, None, None, 0, 0, 0, ""
@@ -134,7 +111,14 @@ st.caption(f"Auto-updating every {refresh_rate} seconds.")
 
 season_avg, season_median = get_season_baseline()
 games = get_live_games()
-live_odds = get_live_odds() 
+live_odds = get_live_odds()
+
+if show_debug:
+    st.warning("⚠️ DEBUG MODE ACTIVE")
+    st.write(f"**Loaded Odds Data:** {len(live_odds)} games found")
+    st.json(live_odds)
+    if not live_odds:
+        st.error("❌ The odds file is empty. Check your Render Logs and API Key!")
 
 if not games:
     st.info("No games found.")
@@ -150,9 +134,7 @@ else:
                 matchup = f"{away} @ {home}"
                 now = datetime.now().strftime("%H:%M:%S")
                 if matchup not in st.session_state.pace_history: st.session_state.pace_history[matchup] = []
-                
                 hist = st.session_state.pace_history[matchup]
-                # Update if new time or first entry
                 if not hist or hist[-1]['Time'] != now:
                     hist.append({"Time": now, "Pace": pace, "Home": home, "Away": away, "HomeScore": h_score, "AwayScore": a_score, "Clock": clock})
 
@@ -172,14 +154,11 @@ else:
             df['KC_Upper'] = df['KC_Mid'] + (df['KC_Vol'] * kc_mult)
             df['KC_Lower'] = df['KC_Mid'] - (df['KC_Vol'] * kc_mult)
 
-            # --- VISUALIZATION ---
+            # Visuals
             fig = go.Figure()
-            # Glow Layer
             fig.add_trace(go.Scatter(x=df['Time'], y=df['Pace'], mode='lines', line=dict(color='rgba(211, 47, 47, 0.2)', width=12), hoverinfo='skip', showlegend=False))
-            # Main Line
             fig.add_trace(go.Scatter(x=df['Time'], y=df['Pace'], mode='lines+markers', name='Live Pace', line=dict(color='#D32F2F', width=3), marker=dict(color='#D32F2F', size=6)))
             
-            # Bands
             if not df['BB_Upper'].isnull().all():
                 fig.add_trace(go.Scatter(x=df['Time'], y=df['BB_Upper'], line=dict(width=0), showlegend=False, hoverinfo='skip'))
                 fig.add_trace(go.Scatter(x=df['Time'], y=df['BB_Lower'], fill='tonexty', fillcolor='rgba(0, 255, 255, 0.1)', line=dict(width=0), name='Bollinger Band', hoverinfo='skip'))
@@ -187,7 +166,6 @@ else:
                 fig.add_trace(go.Scatter(x=df['Time'], y=df['KC_Upper'], mode='lines', name='Keltner Upper', line=dict(color='orange')))
                 fig.add_trace(go.Scatter(x=df['Time'], y=df['KC_Lower'], mode='lines', name='Keltner Lower', line=dict(color='orange')))
 
-            # Reference Lines
             fig.add_hline(y=season_avg, line_dash="dash", line_color="#00FF00", annotation_text=f"Season Avg ({season_avg:.1f})", annotation_position="bottom right")
             fig.add_hline(y=season_median, line_dash="dot", line_color="#FFFF00", annotation_text=f"Season Med ({season_median:.1f})", annotation_position="top right")
 
@@ -196,13 +174,20 @@ else:
             odds_display = live_odds.get(matchup, {})
             dk_total = odds_display.get('Over', None)
             
-            # Metric Calculation: Pace-Adjusted Total
             proj_text = "N/A"
+            eff_text = "N/A"
+            
             if dk_total and season_avg > 0:
-                # Formula: DK Total * (Current Pace / League Avg Pace)
+                # 1. Pace-Adjusted Projection
                 pace_factor = latest['Pace'] / season_avg
                 projected_score = dk_total * pace_factor
                 proj_text = f"{projected_score:.1f}"
+                
+                # 2. Implied Efficiency (Pace-Neutral)
+                # Formula: (Projected Score / Current Pace) * 100
+                if latest['Pace'] > 0:
+                    implied_eff = (projected_score / latest['Pace']) * 100
+                    eff_text = f"{implied_eff:.1f}"
             
             title_text = f"{latest['Away']} {latest['AwayScore']} @ {latest['Home']} {latest['HomeScore']} ({latest['Clock']})  |  DK: {dk_total if dk_total else 'N/A'}"
             
@@ -210,14 +195,13 @@ else:
                               xaxis_title="Time", yaxis_title="Pace", template="plotly_dark", height=500, margin=dict(t=50), legend=dict(orientation="h", y=1.1))
             st.plotly_chart(fig, use_container_width=True)
 
-            # Updated Metrics Table
             c1, c2, c3, c4, c5 = st.columns(5)
             c1.metric("Current Pace", f"{latest['Pace']:.1f}", delta=f"{latest['Pace'] - season_avg:.1f}")
             c2.metric("Clock", latest['Clock'])
             c3.metric("DraftKings Total", f"{dk_total if dk_total else 'N/A'}")
-            
-            # PROJECTION COLUMN (Highlighted)
             c4.metric("Pace-Adj Proj", proj_text, delta="Implied Final" if proj_text != "N/A" else None)
             
-            c5.metric("Lg Avg Pace", f"{season_avg:.1f}")
+            # REPLACED 'Lg Avg Pace' WITH NEW METRIC
+            c5.metric("Implied Eff (Pts/100)", eff_text)
+            
             st.divider()
