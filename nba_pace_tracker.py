@@ -8,7 +8,7 @@ from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="NBA Real-Time Pace Tracker", layout="wide")
+st.set_page_config(page_title="The Rich NBA Real-Time Pace Tracker", layout="wide")
 st.sidebar.header("⚙️ Dashboard Settings")
 
 # Auto-Update
@@ -17,17 +17,17 @@ count = st_autorefresh(interval=refresh_rate * 1000, key="data_refresh")
 
 # Indicators
 st.sidebar.subheader("Bollinger Bands")
-bb_length = st.sidebar.number_input("BB Length", 1, value=5)
+bb_length = st.sidebar.number_input("BB Length", 1, value=12)
 bb_std = st.sidebar.number_input("BB StdDev", 0.1, value=2.0)
 
 st.sidebar.subheader("Keltner Channels")
-kc_length = st.sidebar.number_input("KC Length", 1, value=5)
+kc_length = st.sidebar.number_input("KC Length", 1, value=12)
 kc_mult = st.sidebar.number_input("KC Multiplier", 0.1, value=2.0)
 
 # DEBUG SECTION
 st.sidebar.divider()
-st.sidebar.subheader("🕵️ Debugging")
-show_debug = st.sidebar.checkbox("Show Raw Odds Data")
+st.sidebar.subheader("🕵️ Odds")
+show_debug = st.sidebar.checkbox("Show Odds Data")
 
 # Constants
 HEADERS_CDN = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.nba.com/"}
@@ -205,4 +205,5 @@ else:
             c5.metric("Implied Eff (Pts/100)", eff_text)
             
             st.divider()
+
 
