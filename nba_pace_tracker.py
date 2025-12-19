@@ -15,6 +15,11 @@ st.sidebar.header("⚙️ Dashboard Settings")
 refresh_rate = st.sidebar.slider("Refresh Rate (seconds)", 1, 120, 30)
 count = st_autorefresh(interval=refresh_rate * 1000, key="data_refresh")
 
+# DEBUG SECTION
+st.sidebar.divider()
+st.sidebar.subheader("🕵️ Odds")
+show_debug = st.sidebar.checkbox("Show Odds Data")
+
 # Indicators
 st.sidebar.subheader("Bollinger Bands")
 bb_length = st.sidebar.number_input("BB Length", 1, value=5)
@@ -23,11 +28,6 @@ bb_std = st.sidebar.number_input("BB StdDev", 0.1, value=2.0)
 st.sidebar.subheader("Keltner Channels")
 kc_length = st.sidebar.number_input("KC Length", 1, value=5)
 kc_mult = st.sidebar.number_input("KC Multiplier", 0.1, value=2.0)
-
-# DEBUG SECTION
-st.sidebar.divider()
-st.sidebar.subheader("🕵️ Debugging")
-show_debug = st.sidebar.checkbox("Show Raw Odds Data")
 
 # Constants
 HEADERS_CDN = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.nba.com/"}
@@ -233,4 +233,5 @@ else:
             c6.metric("Implied Eff", implied_eff)
             
             st.divider()
+
 
