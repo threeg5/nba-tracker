@@ -8,7 +8,7 @@ from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="NBA Real-Time Pace Tracker", layout="wide")
+st.set_page_config(page_title="The Rich NBA Real-Time Pace Tracker", layout="wide")
 st.sidebar.header("⚙️ Dashboard Settings")
 
 # Auto-Update
@@ -107,7 +107,7 @@ def calculate_pace(game_id):
     except: return None, None, None, 0, 0, 0, "", 0
 
 # --- MAIN ---
-st.title("🏀 Live NBA Pace Tracker")
+st.title("🏀 The Rich NBA Pace Tracker Live")
 st.caption(f"Auto-updating every {refresh_rate} seconds.")
 
 season_avg, season_median = get_season_baseline()
@@ -233,3 +233,4 @@ else:
             c6.metric("Implied Eff", implied_eff)
             
             st.divider()
+
