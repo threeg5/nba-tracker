@@ -102,6 +102,7 @@ def calculate_pace(game_id):
         minutes_elapsed = parse_game_clock(clock_text, period)
         if minutes_elapsed <= 0: minutes_elapsed = 1
         pace = (avg_poss / minutes_elapsed) * 48
+        # Return minutes_elapsed at the end to use in calculations
         return pace, home['teamTricode'], away['teamTricode'], home['score'], away['score'], period, clock_text, minutes_elapsed
     except: return None, None, None, 0, 0, 0, "", 0
 
@@ -129,6 +130,7 @@ else:
     for game in games:
         if game['gameStatus'] >= 2: 
             active += 1
+            # Unpack the new minutes_elapsed variable
             pace, home, away, h_score, a_score, period, clock, mins_elapsed = calculate_pace(game['gameId'])
             if pace and pace > 0:
                 matchup = f"{away} @ {home}"
@@ -196,6 +198,10 @@ else:
             implied_remaining_text = "N/A"
             diff_text = "N/A"
             
+            # Variables for new formula
+            final_on_pace = 0 
+            diff_val = 0
+            
             total_current = latest['HomeScore'] + latest['AwayScore']
             elapsed_minutes = latest.get('Elapsed', 0)
             elapsed_sec = elapsed_minutes * 60
@@ -233,6 +239,19 @@ else:
             if latest['Pace'] > 0 and dk_total:
                  val = (dk_total / season_avg) * 100
                  implied_eff = f"{val:.1f}"
+            
+            # E. New Formula: Rich Adjusted (Row 2, Col 4)
+            # Formula: (Rem Diff / Pace Delta) + The Rich Proj
+            rich_adjusted_text = "N/A"
+            pace_delta = latest['Pace'] - season_median
+            
+            if rich_proj_text != "N/A" and diff_text != "N/A":
+                if abs(pace_delta) > 0.1: # Prevent div by zero
+                    # (Red / Green) + Rich Proj
+                    adj_val = (diff_val / pace_delta) + final_on_pace
+                    rich_adjusted_text = f"{adj_val:.1f}"
+                else:
+                    rich_adjusted_text = "---" # Delta too small to divide
 
             title_text = f"{latest['Away']} {latest['AwayScore']} @ {latest['Home']} {latest['HomeScore']} ({latest['Clock']})  |  DK: {dk_total if dk_total else 'N/A'}"
             
@@ -243,7 +262,7 @@ else:
             # --- METRICS TABLE ROW 1 ---
             c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
             c1.metric("Clock", latest['Clock'])
-            c2.metric("Pace", f"{latest['Pace']:.1f}", delta=f"{latest['Pace'] - season_avg:.1f}")
+            c2.metric("Pace", f"{latest['Pace']:.1f}", delta=f"{pace_delta:.1f}") # Pace Delta (The Green Number)
             c3.metric("Pace-Adj Proj", proj_text)
             c4.metric("DK Total", f"{dk_total if dk_total else 'N/A'}")
             c5.metric("Pts Per Min", ppm_text)
@@ -253,18 +272,11 @@ else:
             # --- METRICS TABLE ROW 2 ---
             r2_c1, r2_c2, r2_c3, r2_c4, r2_c5, r2_c6, r2_c7 = st.columns(7)
             
-            # Col 1: Proj Remaining (Pts Per Sec * Time Left)
             r2_c1.metric("Proj Rem Pts", proj_remaining_text)
-            
-            # Col 2: Implied Remaining (DK Total - Current Score)
             r2_c2.metric("Implied Rem Pts", implied_remaining_text)
+            r2_c3.metric("Rem Diff", diff_text, delta=diff_text if diff_text != "N/A" else None) # Rem Diff (The Red Number)
             
-            # Col 3: Diff (Col 1 - Col 2)
-            # Add Delta color to make it easy to see (Green = Over Edge, Red = Under Edge)
-            delta_color = "normal"
-            if diff_text != "N/A":
-                 delta_color = "normal" # Streamlit handles +/- colors automatically in delta
-            
-            r2_c3.metric("Rem Diff", diff_text, delta=diff_text if diff_text != "N/A" else None)
+            # New Column 4
+            r2_c4.metric("Rich Adjusted", rich_adjusted_text)
             
             st.divider()
