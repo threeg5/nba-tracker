@@ -102,7 +102,6 @@ def calculate_pace(game_id):
         minutes_elapsed = parse_game_clock(clock_text, period)
         if minutes_elapsed <= 0: minutes_elapsed = 1
         pace = (avg_poss / minutes_elapsed) * 48
-        # Return minutes_elapsed at the end to use in calculations
         return pace, home['teamTricode'], away['teamTricode'], home['score'], away['score'], period, clock_text, minutes_elapsed
     except: return None, None, None, 0, 0, 0, "", 0
 
@@ -130,7 +129,6 @@ else:
     for game in games:
         if game['gameStatus'] >= 2: 
             active += 1
-            # Unpack the new minutes_elapsed variable
             pace, home, away, h_score, a_score, period, clock, mins_elapsed = calculate_pace(game['gameId'])
             if pace and pace > 0:
                 matchup = f"{away} @ {home}"
@@ -192,29 +190,41 @@ else:
                 projected_score = dk_total * pace_factor
                 proj_text = f"{projected_score:.1f}"
             
-            # B. The Rich Projection (Linear) & Projected Remaining
+            # B. The Rich Projection (Linear) & Variables for Row 2
             rich_proj_text = "N/A"
             proj_remaining_text = "N/A"
+            implied_remaining_text = "N/A"
+            diff_text = "N/A"
             
             total_current = latest['HomeScore'] + latest['AwayScore']
             elapsed_minutes = latest.get('Elapsed', 0)
             elapsed_sec = elapsed_minutes * 60
             
-            if elapsed_sec > 60: # Calculate after 1 min of play
-                total_game_sec = 2880 # 48 mins
+            if elapsed_sec > 60: 
+                total_game_sec = 2880
                 remaining_sec = max(0, total_game_sec - elapsed_sec)
                 
+                # 1. Proj Remaining (Col 1)
                 points_per_sec = total_current / elapsed_sec
                 projected_remaining_points = points_per_sec * remaining_sec
-                
-                final_on_pace = total_current + projected_remaining_points
-                
-                rich_proj_text = f"{final_on_pace:.1f}"
                 proj_remaining_text = f"{projected_remaining_points:.1f}"
-            
-            # C. Points Per Minute (PPM)
+                
+                # The Rich Projection (Row 1, Col 6)
+                final_on_pace = total_current + projected_remaining_points
+                rich_proj_text = f"{final_on_pace:.1f}"
+                
+                # 2. Implied Remaining (Col 2)
+                if dk_total:
+                    implied_remaining = dk_total - total_current
+                    implied_remaining_text = f"{implied_remaining:.1f}"
+                    
+                    # 3. Diff (Col 3) = Proj Rem - Implied Rem
+                    diff_val = projected_remaining_points - implied_remaining
+                    diff_text = f"{diff_val:.1f}"
+
+            # C. Points Per Minute
             ppm_text = "N/A"
-            if elapsed_minutes > 0.5: # Wait 30 seconds
+            if elapsed_minutes > 0.5:
                 ppm = total_current / elapsed_minutes
                 ppm_text = f"{ppm:.1f}"
 
@@ -241,9 +251,20 @@ else:
             c7.metric("Implied Eff", implied_eff)
             
             # --- METRICS TABLE ROW 2 ---
-            # New row underneath for extra data
             r2_c1, r2_c2, r2_c3, r2_c4, r2_c5, r2_c6, r2_c7 = st.columns(7)
+            
+            # Col 1: Proj Remaining (Pts Per Sec * Time Left)
             r2_c1.metric("Proj Rem Pts", proj_remaining_text)
-            # Other columns in row 2 left blank for now
+            
+            # Col 2: Implied Remaining (DK Total - Current Score)
+            r2_c2.metric("Implied Rem Pts", implied_remaining_text)
+            
+            # Col 3: Diff (Col 1 - Col 2)
+            # Add Delta color to make it easy to see (Green = Over Edge, Red = Under Edge)
+            delta_color = "normal"
+            if diff_text != "N/A":
+                 delta_color = "normal" # Streamlit handles +/- colors automatically in delta
+            
+            r2_c3.metric("Rem Diff", diff_text, delta=diff_text if diff_text != "N/A" else None)
             
             st.divider()
