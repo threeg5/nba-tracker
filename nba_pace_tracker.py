@@ -192,8 +192,10 @@ else:
                 projected_score = dk_total * pace_factor
                 proj_text = f"{projected_score:.1f}"
             
-            # B. The Rich Projection (Linear)
+            # B. The Rich Projection (Linear) & Projected Remaining
             rich_proj_text = "N/A"
+            proj_remaining_text = "N/A"
+            
             total_current = latest['HomeScore'] + latest['AwayScore']
             elapsed_minutes = latest.get('Elapsed', 0)
             elapsed_sec = elapsed_minutes * 60
@@ -201,9 +203,14 @@ else:
             if elapsed_sec > 60: # Calculate after 1 min of play
                 total_game_sec = 2880 # 48 mins
                 remaining_sec = max(0, total_game_sec - elapsed_sec)
+                
                 points_per_sec = total_current / elapsed_sec
-                final_on_pace = total_current + (points_per_sec * remaining_sec)
+                projected_remaining_points = points_per_sec * remaining_sec
+                
+                final_on_pace = total_current + projected_remaining_points
+                
                 rich_proj_text = f"{final_on_pace:.1f}"
+                proj_remaining_text = f"{projected_remaining_points:.1f}"
             
             # C. Points Per Minute (PPM)
             ppm_text = "N/A"
@@ -223,20 +230,20 @@ else:
                               xaxis_title="Time", yaxis_title="Pace", template="plotly_dark", height=500, margin=dict(t=50), legend=dict(orientation="h", y=1.1))
             st.plotly_chart(fig, use_container_width=True)
 
-            # --- METRICS TABLE (7 Columns) ---
-            # Order: Clock, Pace, Pace-Adj Proj, DK Total, PPM, Rich Proj, Implied Eff
+            # --- METRICS TABLE ROW 1 ---
             c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
-            
             c1.metric("Clock", latest['Clock'])
             c2.metric("Pace", f"{latest['Pace']:.1f}", delta=f"{latest['Pace'] - season_avg:.1f}")
             c3.metric("Pace-Adj Proj", proj_text)
             c4.metric("DK Total", f"{dk_total if dk_total else 'N/A'}")
-            
-            # New Column E
             c5.metric("Pts Per Min", ppm_text)
-            
-            # Shifted Columns
             c6.metric("The Rich Proj", rich_proj_text)
             c7.metric("Implied Eff", implied_eff)
+            
+            # --- METRICS TABLE ROW 2 ---
+            # New row underneath for extra data
+            r2_c1, r2_c2, r2_c3, r2_c4, r2_c5, r2_c6, r2_c7 = st.columns(7)
+            r2_c1.metric("Proj Rem Pts", proj_remaining_text)
+            # Other columns in row 2 left blank for now
             
             st.divider()
