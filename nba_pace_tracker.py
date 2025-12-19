@@ -26,8 +26,8 @@ kc_mult = st.sidebar.number_input("KC Multiplier", 0.1, value=2.0)
 
 # DEBUG SECTION
 st.sidebar.divider()
-st.sidebar.subheader("🕵️ Debugging")
-show_debug = st.sidebar.checkbox("Show Raw Odds Data")
+st.sidebar.subheader("🕵️ Odds")
+show_debug = st.sidebar.checkbox("Show Odds Data")
 
 # Constants
 HEADERS_CDN = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.nba.com/"}
@@ -107,7 +107,7 @@ def calculate_pace(game_id):
     except: return None, None, None, 0, 0, 0, "", 0
 
 # --- MAIN ---
-st.title("🏀 Live NBA Pace Tracker")
+st.title("🏀 The Rich NBA Pace Tracker - LIVE")
 st.caption(f"Auto-updating every {refresh_rate} seconds.")
 
 season_avg, season_median = get_season_baseline()
@@ -280,3 +280,4 @@ else:
             r2_c4.metric("Rich Adjusted", rich_adjusted_text)
             
             st.divider()
+
