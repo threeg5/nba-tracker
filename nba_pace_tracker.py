@@ -8,17 +8,12 @@ from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="The Rich NBA Real-Time Pace Tracker", layout="wide")
+st.set_page_config(page_title="NBA Real-Time Pace Tracker", layout="wide")
 st.sidebar.header("⚙️ Dashboard Settings")
 
 # Auto-Update
 refresh_rate = st.sidebar.slider("Refresh Rate (seconds)", 1, 120, 30)
 count = st_autorefresh(interval=refresh_rate * 1000, key="data_refresh")
-
-# DEBUG SECTION
-st.sidebar.divider()
-st.sidebar.subheader("🕵️ Odds")
-show_debug = st.sidebar.checkbox("Show Odds Data")
 
 # Indicators
 st.sidebar.subheader("Bollinger Bands")
@@ -28,6 +23,11 @@ bb_std = st.sidebar.number_input("BB StdDev", 0.1, value=2.0)
 st.sidebar.subheader("Keltner Channels")
 kc_length = st.sidebar.number_input("KC Length", 1, value=5)
 kc_mult = st.sidebar.number_input("KC Multiplier", 0.1, value=2.0)
+
+# DEBUG SECTION
+st.sidebar.divider()
+st.sidebar.subheader("🕵️ Debugging")
+show_debug = st.sidebar.checkbox("Show Raw Odds Data")
 
 # Constants
 HEADERS_CDN = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.nba.com/"}
@@ -107,7 +107,7 @@ def calculate_pace(game_id):
     except: return None, None, None, 0, 0, 0, "", 0
 
 # --- MAIN ---
-st.title("🏀 The Rich NBA Pace Tracker Live")
+st.title("🏀 Live NBA Pace Tracker")
 st.caption(f"Auto-updating every {refresh_rate} seconds.")
 
 season_avg, season_median = get_season_baseline()
@@ -195,7 +195,8 @@ else:
             # B. The Rich Projection (Linear)
             rich_proj_text = "N/A"
             total_current = latest['HomeScore'] + latest['AwayScore']
-            elapsed_sec = latest.get('Elapsed', 0) * 60
+            elapsed_minutes = latest.get('Elapsed', 0)
+            elapsed_sec = elapsed_minutes * 60
             
             if elapsed_sec > 60: # Calculate after 1 min of play
                 total_game_sec = 2880 # 48 mins
@@ -203,8 +204,14 @@ else:
                 points_per_sec = total_current / elapsed_sec
                 final_on_pace = total_current + (points_per_sec * remaining_sec)
                 rich_proj_text = f"{final_on_pace:.1f}"
+            
+            # C. Points Per Minute (PPM)
+            ppm_text = "N/A"
+            if elapsed_minutes > 0.5: # Wait 30 seconds
+                ppm = total_current / elapsed_minutes
+                ppm_text = f"{ppm:.1f}"
 
-            # C. Implied Efficiency
+            # D. Implied Efficiency
             implied_eff = "N/A"
             if latest['Pace'] > 0 and dk_total:
                  val = (dk_total / season_avg) * 100
@@ -216,22 +223,20 @@ else:
                               xaxis_title="Time", yaxis_title="Pace", template="plotly_dark", height=500, margin=dict(t=50), legend=dict(orientation="h", y=1.1))
             st.plotly_chart(fig, use_container_width=True)
 
-            # --- METRICS TABLE (REORGANIZED) ---
-            # Order: Clock, Live Pace, Projected Pace Score, DK Total, The Rich Projection, Implied Eff
-            c1, c2, c3, c4, c5, c6 = st.columns(6)
+            # --- METRICS TABLE (7 Columns) ---
+            # Order: Clock, Pace, Pace-Adj Proj, DK Total, PPM, Rich Proj, Implied Eff
+            c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
             
             c1.metric("Clock", latest['Clock'])
-            
             c2.metric("Pace", f"{latest['Pace']:.1f}", delta=f"{latest['Pace'] - season_avg:.1f}")
-            
             c3.metric("Pace-Adj Proj", proj_text)
-            
             c4.metric("DK Total", f"{dk_total if dk_total else 'N/A'}")
             
-            c5.metric("The Rich Proj", rich_proj_text)
+            # New Column E
+            c5.metric("Pts Per Min", ppm_text)
             
-            c6.metric("Implied Eff", implied_eff)
+            # Shifted Columns
+            c6.metric("The Rich Proj", rich_proj_text)
+            c7.metric("Implied Eff", implied_eff)
             
             st.divider()
-
-
