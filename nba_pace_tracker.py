@@ -102,6 +102,7 @@ def calculate_pace(game_id):
         minutes_elapsed = parse_game_clock(clock_text, period)
         if minutes_elapsed <= 0: minutes_elapsed = 1
         pace = (avg_poss / minutes_elapsed) * 48
+        # Return minutes_elapsed at the end to use in calculations
         return pace, home['teamTricode'], away['teamTricode'], home['score'], away['score'], period, clock_text, minutes_elapsed
     except: return None, None, None, 0, 0, 0, "", 0
 
@@ -129,6 +130,7 @@ else:
     for game in games:
         if game['gameStatus'] >= 2: 
             active += 1
+            # Unpack the new minutes_elapsed variable
             pace, home, away, h_score, a_score, period, clock, mins_elapsed = calculate_pace(game['gameId'])
             if pace and pace > 0:
                 matchup = f"{away} @ {home}"
@@ -183,31 +185,30 @@ else:
             odds_display = live_odds.get(matchup, {})
             dk_total = odds_display.get('Over', None)
             
-            # 1. Pace-Adjusted Projection (Market Total * Pace Factor)
+            # A. Pace-Adjusted Projection
             proj_text = "N/A"
             if dk_total and season_avg > 0:
                 pace_factor = latest['Pace'] / season_avg
                 projected_score = dk_total * pace_factor
                 proj_text = f"{projected_score:.1f}"
             
-            # 2. Linear Projection (Current Score / Time * 48m)
-            # This is your requested formula: (Total / TimePlayed) * TimeRemaining + Current
-            on_pace_text = "N/A"
+            # B. The Rich Projection (Linear)
+            rich_proj_text = "N/A"
             total_current = latest['HomeScore'] + latest['AwayScore']
-            
-            # Convert minutes to seconds
             elapsed_sec = latest.get('Elapsed', 0) * 60
             
-            if elapsed_sec > 100: # Wait until ~2 mins played to show projection (avoids crazy numbers)
+            if elapsed_sec > 60: # Calculate after 1 min of play
                 total_game_sec = 2880 # 48 mins
                 remaining_sec = max(0, total_game_sec - elapsed_sec)
-                
-                # Points per second
                 points_per_sec = total_current / elapsed_sec
-                
-                # Final = Current + (Rate * Remaining)
                 final_on_pace = total_current + (points_per_sec * remaining_sec)
-                on_pace_text = f"{final_on_pace:.1f}"
+                rich_proj_text = f"{final_on_pace:.1f}"
+
+            # C. Implied Efficiency
+            implied_eff = "N/A"
+            if latest['Pace'] > 0 and dk_total:
+                 val = (dk_total / season_avg) * 100
+                 implied_eff = f"{val:.1f}"
 
             title_text = f"{latest['Away']} {latest['AwayScore']} @ {latest['Home']} {latest['HomeScore']} ({latest['Clock']})  |  DK: {dk_total if dk_total else 'N/A'}"
             
@@ -215,22 +216,20 @@ else:
                               xaxis_title="Time", yaxis_title="Pace", template="plotly_dark", height=500, margin=dict(t=50), legend=dict(orientation="h", y=1.1))
             st.plotly_chart(fig, use_container_width=True)
 
+            # --- METRICS TABLE (REORGANIZED) ---
+            # Order: Clock, Live Pace, Projected Pace Score, DK Total, The Rich Projection, Implied Eff
             c1, c2, c3, c4, c5, c6 = st.columns(6)
-            c1.metric("Pace", f"{latest['Pace']:.1f}", delta=f"{latest['Pace'] - season_avg:.1f}")
-            c2.metric("Clock", latest['Clock'])
-            c3.metric("DK Total", f"{dk_total if dk_total else 'N/A'}")
             
-            # Column 4: Pace-Adjusted (Uses Market Efficiency)
-            c4.metric("Pace-Adj Proj", proj_text)
+            c1.metric("Clock", latest['Clock'])
             
-            # Column 5: Implied Efficiency (Pts/100)
-            implied_eff = "N/A"
-            if latest['Pace'] > 0 and dk_total:
-                 val = (dk_total / season_avg) * 100
-                 implied_eff = f"{val:.1f}"
-            c5.metric("Implied Eff", implied_eff)
-
-            # Column 6: Linear Projection (Your Formula)
-            c6.metric("Proj Total", on_pace_text)
+            c2.metric("Pace", f"{latest['Pace']:.1f}", delta=f"{latest['Pace'] - season_avg:.1f}")
+            
+            c3.metric("Pace-Adj Proj", proj_text)
+            
+            c4.metric("DK Total", f"{dk_total if dk_total else 'N/A'}")
+            
+            c5.metric("The Rich Proj", rich_proj_text)
+            
+            c6.metric("Implied Eff", implied_eff)
             
             st.divider()
