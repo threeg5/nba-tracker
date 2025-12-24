@@ -14,10 +14,8 @@ from oauth2client.service_account import ServiceAccountCredentials
 def connect_to_gsheet():
     """Connects to Google Sheets using Render Environment Variables"""
     try:
-        # Load credentials from Render Environment Variable
         creds_json_str = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
         if not creds_json_str:
-            st.error("❌ Missing 'GOOGLE_SHEETS_CREDENTIALS' in Render Environment.")
             return None
 
         creds_dict = json.loads(creds_json_str)
@@ -25,19 +23,20 @@ def connect_to_gsheet():
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
         
-        # Open the Sheet (Make sure your sheet is named EXACTLY 'NBA Logs' or change this line)
+        # Open the Sheet (Make sure your sheet is named EXACTLY 'NBA Logs')
         sheet = client.open("NBA Logs").sheet1 
         return sheet
     except Exception as e:
-        st.error(f"Google Sheet Error: {e}")
+        st.error(f"Google Sheet Connection Error: {e}")
         return None
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="NBA Data Logger", layout="wide")
 st.sidebar.header("⚙️ Logger Settings")
 
-# Set this to 10 seconds for your "Every 10s" requirement
 refresh_rate = st.sidebar.slider("Refresh Rate (seconds)", 5, 60, 10)
+force_log = st.sidebar.checkbox("⚠️ TEST MODE: Log All Games Now", value=False, help="Check this to ignore the 90-second rule and force logging immediately.")
+
 count = st_autorefresh(interval=refresh_rate * 1000, key="data_refresh")
 
 # Constants
@@ -47,7 +46,6 @@ HEADERS_CDN = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.nba.com/"}
 
 @st.cache_data(ttl=3600)
 def get_season_baseline():
-    # Hardcoded fallback for speed/reliability in logger mode
     return 99.5, 98.0
 
 def get_live_games():
@@ -104,7 +102,6 @@ def calculate_pace(game_id):
 
 # --- MAIN LOOP ---
 st.title("📊 NBA Data Logger (G-Sheets)")
-st.write(f"Auto-logging games in the last 90 seconds. Refreshing every {refresh_rate}s.")
 
 season_avg, season_median = get_season_baseline()
 games = get_live_games()
@@ -114,9 +111,10 @@ sheet = connect_to_gsheet()
 if not games:
     st.info("No games active.")
 else:
-    active_games = []
+    active_count = 0
     for game in games:
         if game['gameStatus'] >= 2: # In Progress
+            active_count += 1
             res = calculate_pace(game['gameId'])
             if res:
                 pace, home, away, h_score, a_score, period, clock, mins_elapsed = res
@@ -125,25 +123,17 @@ else:
                 total_current = h_score + a_score
                 elapsed_sec = mins_elapsed * 60
                 
-                # Default "End of Game" values
                 proj_rem = 0
                 rich_proj = total_current
                 rem_diff = 0
                 
-                # Determine Seconds Remaining in Regulation (48m = 2880s)
-                # If OT (Period > 4), logic handles it by elapsed_sec increasing
-                total_regulation_sec = 2880
-                # If in OT, we might be over 2880, so remaining is based on OT period end
-                # But typically "Last 1:30" means end of whatever period is the final one.
-                # Simplification: Calculate remaining relative to current period end if Q4+
-                
+                # Logic to determine "Time Left"
                 remaining_sec_in_game = 0
                 if period >= 4:
-                     # Calculate when this period ends
                      end_of_period_sec = period * 12 * 60
                      remaining_sec_in_game = end_of_period_sec - elapsed_sec
                 else:
-                     remaining_sec_in_game = 9999 # Not end of game
+                     remaining_sec_in_game = 9999 
                 
                 # --- ODDS & PROJECTIONS ---
                 matchup = f"{away} @ {home}"
@@ -152,43 +142,56 @@ else:
                 
                 if elapsed_sec > 60:
                     points_per_sec = total_current / elapsed_sec
-                    # For projection, we project to end of current period if Q4+
-                    proj_rem = points_per_sec * remaining_sec_in_game
+                    # If Q4, project remaining. If early game, project full 48m.
+                    if period >= 4:
+                         proj_rem = points_per_sec * remaining_sec_in_game
+                    else:
+                         proj_rem = points_per_sec * (2880 - elapsed_sec)
+
                     rich_proj = total_current + proj_rem
                     
                     if dk_total:
                         implied_rem = dk_total - total_current
                         rem_diff = proj_rem - implied_rem
                 
-                # --- LOGGING CONDITION ---
-                # "Last 1:30 seconds" -> Remaining <= 90 seconds
-                # And we must be in Q4 or OT
-                if period >= 4 and 0 < remaining_sec_in_game <= 90:
-                    
-                    log_row = [
-                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"), # Timestamp
-                        matchup,        # Game
-                        clock,          # Clock
-                        f"{pace:.1f}",  # Pace
-                        h_score,        # Home Score
-                        a_score,        # Away Score
-                        dk_total,       # DK Total
-                        f"{rich_proj:.1f}", # Rich Proj
-                        f"{proj_rem:.1f}",  # Proj Rem Pts
-                        f"{rem_diff:.1f}"   # Rem Diff (Edge)
-                    ]
-                    
-                    # VISUAL DISPLAY
-                    st.success(f"LOGGING: {matchup} | Clock: {clock} | Edge: {rem_diff:.1f}")
-                    st.table(pd.DataFrame([log_row], columns=["Time", "Matchup", "Clock", "Pace", "Home", "Away", "DK", "Rich Proj", "Proj Rem", "Edge"]))
-                    
-                    # SEND TO GOOGLE SHEET
-                    if sheet:
-                        try:
-                            sheet.append_row(log_row)
-                        except Exception as e:
-                            st.error(f"Failed to append to sheet: {e}")
+                # --- LOGGING TRIGGER ---
+                # Log if: (In 4th Qtr AND <90s left) OR (Test Mode is ON)
+                is_logging_time = (period >= 4 and 0 < remaining_sec_in_game <= 90)
+                should_log = is_logging_time or force_log
+
+                # --- PREPARE DATA ---
+                log_row = [
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
+                    matchup,        
+                    clock,          
+                    f"{pace:.1f}",  
+                    h_score,        
+                    a_score,        
+                    dk_total,       
+                    f"{rich_proj:.1f}", 
+                    f"{proj_rem:.1f}",  
+                    f"{rem_diff:.1f}"   
+                ]
                 
+                # --- VISUAL DISPLAY (ALWAYS SHOW THIS) ---
+                # Status Badge
+                if should_log:
+                    st.success(f"🔴 LOGGING ACTIVE: {matchup} (Writing to Sheets...)")
                 else:
-                    # Just show basic info if not logging
-                    st.text(f"{matchup}: {clock} (Not logging yet - {remaining_sec_in_game:.0f}s left)")
+                    st.info(f"👀 MONITORING: {matchup} (Waiting for last 90s...)")
+                
+                # Data Table
+                df_display = pd.DataFrame([log_row], columns=["Time", "Matchup", "Clock", "Pace", "Home", "Away", "DK", "Rich Proj", "Proj Rem", "Edge"])
+                st.table(df_display)
+                
+                # --- WRITE TO SHEET (ONLY IF TRIGGERED) ---
+                if should_log and sheet:
+                    try:
+                        sheet.append_row(log_row)
+                    except Exception as e:
+                        st.error(f"❌ Failed to append to sheet: {e}")
+                
+                st.divider()
+
+    if active_count == 0:
+        st.warning("Games scheduled but none currently active.")
