@@ -23,12 +23,26 @@ def connect_to_gsheet():
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
         
-        # Open the Sheet (Make sure your sheet is named EXACTLY 'NBA Logs')
+        # Open the Sheet
         sheet = client.open("NBA Logs").sheet1 
         return sheet
     except Exception as e:
         st.error(f"Google Sheet Connection Error: {e}")
         return None
+
+def check_and_add_headers(sheet):
+    """Adds headers to Google Sheet if it is empty"""
+    if sheet:
+        try:
+            # Check if cell A1 is empty
+            if not sheet.acell('A1').value:
+                headers = [
+                    "Time", "Matchup", "Clock", "Pace", "Home Score", "Away Score", 
+                    "DK Total", "Rich Proj", "Proj Rem", "Edge (Rem Diff)", "Rich Adjusted"
+                ]
+                sheet.append_row(headers)
+        except:
+            pass # Fail silently if check fails to avoid blocking app
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="NBA Data Logger", layout="wide")
@@ -41,6 +55,16 @@ count = st_autorefresh(interval=refresh_rate * 1000, key="data_refresh")
 
 # Constants
 HEADERS_CDN = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.nba.com/"}
+TEAM_COLORS = { # Added back for visual flair if needed, or just standard text
+    'ATL': '#E03A3E', 'BOS': '#007A33', 'BKN': '#000000', 'CHA': '#1D1160',
+    'CHI': '#CE1141', 'CLE': '#860038', 'DAL': '#00538C', 'DEN': '#0E2240',
+    'DET': '#C8102E', 'GSW': '#1D428A', 'HOU': '#CE1141', 'IND': '#002D62',
+    'LAC': '#C8102E', 'LAL': '#552583', 'MEM': '#5D76A9', 'MIA': '#98002E',
+    'MIL': '#00471B', 'MIN': '#0C2340', 'NOP': '#0C2340', 'NYK': '#006BB6',
+    'OKC': '#007AC1', 'ORL': '#0077C0', 'PHI': '#006BB6', 'PHX': '#1D1160',
+    'POR': '#E03A3E', 'SAC': '#5A2D81', 'SAS': '#C4CED4', 'TOR': '#CE1141',
+    'UTA': '#002B5C', 'WAS': '#002B5C'
+}
 
 # --- DATA FUNCTIONS ---
 
@@ -101,12 +125,17 @@ def calculate_pace(game_id):
     except: return None
 
 # --- MAIN LOOP ---
-st.title("📊 NBA Data Logger (G-Sheets)")
+st.title("📊 NBA Data Logger & Dashboard")
 
 season_avg, season_median = get_season_baseline()
 games = get_live_games()
 live_odds = get_live_odds()
 sheet = connect_to_gsheet()
+
+# One-time header check
+if 'headers_checked' not in st.session_state:
+    check_and_add_headers(sheet)
+    st.session_state.headers_checked = True
 
 if not games:
     st.info("No games active.")
@@ -126,6 +155,7 @@ else:
                 proj_rem = 0
                 rich_proj = total_current
                 rem_diff = 0
+                rich_adjusted_val = 0 # Numeric value for logic
                 
                 # Logic to determine "Time Left"
                 remaining_sec_in_game = 0
@@ -140,56 +170,100 @@ else:
                 odds_data = live_odds.get(matchup, {})
                 dk_total = odds_data.get('Over', 0)
                 
+                # Default Text Values
+                proj_text = "N/A"
+                rich_proj_text = "N/A"
+                proj_remaining_text = "N/A"
+                implied_remaining_text = "N/A"
+                diff_text = "N/A"
+                rich_adjusted_text = "N/A"
+                ppm_text = "N/A"
+                implied_eff = "N/A"
+                pace_delta = pace - season_median
+
                 if elapsed_sec > 60:
+                    # 1. Pace-Adjusted Proj
+                    if dk_total:
+                        pace_factor = pace / season_avg
+                        proj_text = f"{dk_total * pace_factor:.1f}"
+
+                    # 2. Rich Proj & Remainder
                     points_per_sec = total_current / elapsed_sec
-                    # If Q4, project remaining. If early game, project full 48m.
+                    
                     if period >= 4:
                          proj_rem = points_per_sec * remaining_sec_in_game
                     else:
                          proj_rem = points_per_sec * (2880 - elapsed_sec)
 
                     rich_proj = total_current + proj_rem
+                    rich_proj_text = f"{rich_proj:.1f}"
+                    proj_remaining_text = f"{proj_rem:.1f}"
                     
                     if dk_total:
                         implied_rem = dk_total - total_current
+                        implied_remaining_text = f"{implied_rem:.1f}"
+                        
                         rem_diff = proj_rem - implied_rem
+                        diff_text = f"{rem_diff:.1f}"
+                        
+                        # 3. Rich Adjusted
+                        # Formula: (Rem Diff / Pace Delta) + Rich Proj
+                        if abs(pace_delta) > 0.1:
+                            rich_adjusted_val = (rem_diff / pace_delta) + rich_proj
+                            rich_adjusted_text = f"{rich_adjusted_val:.1f}"
+
+                if elapsed_sec > 30:
+                    ppm = total_current / (elapsed_sec / 60)
+                    ppm_text = f"{ppm:.1f}"
+                
+                if pace > 0 and dk_total:
+                     implied_eff = f"{(dk_total / season_avg) * 100:.1f}"
+
+                # --- VISUAL DASHBOARD (ALWAYS VISIBLE) ---
+                st.subheader(f"{matchup} | {clock}")
+                
+                # Row 1
+                c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
+                c1.metric("Clock", clock)
+                c2.metric("Pace", f"{pace:.1f}", delta=f"{pace_delta:.1f}")
+                c3.metric("Pace-Adj Proj", proj_text)
+                c4.metric("DK Total", f"{dk_total if dk_total else 'N/A'}")
+                c5.metric("Pts Per Min", ppm_text)
+                c6.metric("The Rich Proj", rich_proj_text)
+                c7.metric("Implied Eff", implied_eff)
+                
+                # Row 2
+                r2_c1, r2_c2, r2_c3, r2_c4, r2_c5, r2_c6, r2_c7 = st.columns(7)
+                r2_c1.metric("Proj Rem Pts", proj_remaining_text)
+                r2_c2.metric("Implied Rem Pts", implied_remaining_text)
+                r2_c3.metric("Rem Diff", diff_text, delta=diff_text if diff_text != "N/A" else None)
+                r2_c4.metric("Rich Adjusted", rich_adjusted_text) # IT IS BACK!
                 
                 # --- LOGGING TRIGGER ---
-                # Log if: (In 4th Qtr AND <90s left) OR (Test Mode is ON)
                 is_logging_time = (period >= 4 and 0 < remaining_sec_in_game <= 90)
                 should_log = is_logging_time or force_log
 
-                # --- PREPARE DATA ---
-                log_row = [
-                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
-                    matchup,        
-                    clock,          
-                    f"{pace:.1f}",  
-                    h_score,        
-                    a_score,        
-                    dk_total,       
-                    f"{rich_proj:.1f}", 
-                    f"{proj_rem:.1f}",  
-                    f"{rem_diff:.1f}"   
-                ]
-                
-                # --- VISUAL DISPLAY (ALWAYS SHOW THIS) ---
-                # Status Badge
                 if should_log:
-                    st.success(f"🔴 LOGGING ACTIVE: {matchup} (Writing to Sheets...)")
-                else:
-                    st.info(f"👀 MONITORING: {matchup} (Waiting for last 90s...)")
-                
-                # Data Table
-                df_display = pd.DataFrame([log_row], columns=["Time", "Matchup", "Clock", "Pace", "Home", "Away", "DK", "Rich Proj", "Proj Rem", "Edge"])
-                st.table(df_display)
-                
-                # --- WRITE TO SHEET (ONLY IF TRIGGERED) ---
-                if should_log and sheet:
-                    try:
-                        sheet.append_row(log_row)
-                    except Exception as e:
-                        st.error(f"❌ Failed to append to sheet: {e}")
+                    st.caption("🔴 LOGGING TO SHEETS...")
+                    log_row = [
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
+                        matchup,        
+                        clock,          
+                        f"{pace:.1f}",  
+                        h_score,        
+                        a_score,        
+                        dk_total,       
+                        rich_proj_text, 
+                        proj_remaining_text,  
+                        diff_text,
+                        rich_adjusted_text  # ADDED TO LOG
+                    ]
+                    
+                    if sheet:
+                        try:
+                            sheet.append_row(log_row)
+                        except Exception as e:
+                            st.error(f"❌ Failed to append to sheet: {e}")
                 
                 st.divider()
 
