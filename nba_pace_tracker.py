@@ -45,7 +45,7 @@ def check_and_add_headers(sheet):
             pass # Fail silently if check fails to avoid blocking app
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="NBA Data Logger", layout="wide")
+st.set_page_config(page_title="The Rich - NBA Data Logger", layout="wide")
 st.sidebar.header("⚙️ Logger Settings")
 
 refresh_rate = st.sidebar.slider("Refresh Rate (seconds)", 5, 60, 10)
@@ -125,7 +125,7 @@ def calculate_pace(game_id):
     except: return None
 
 # --- MAIN LOOP ---
-st.title("📊 NBA Data Logger & Dashboard")
+st.title("📊 The Rich - NBA Data Logger & Dashboard")
 
 season_avg, season_median = get_season_baseline()
 games = get_live_games()
@@ -269,3 +269,4 @@ else:
 
     if active_count == 0:
         st.warning("Games scheduled but none currently active.")
+
